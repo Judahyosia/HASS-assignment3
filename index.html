@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        .legend {
+            font-family: montserrat;
+            font-size: 7px;
+        }
+
+        .legend rect {
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: #fff;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            opacity: 0;
+        }
+
+        h1 {
+        text-align: center;
+        font-family: montserrat;
+        }
+
+        p {
+        text-align: center;
+        font-family: montserrat;
+        }
+        
+        h3 {
+        text-align: center;
+        font-family: montserrat;
+        }
+
+        .Button {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 12px;
+            color: #fff;
+            background-color: #636363;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+
+    </style>
+</head>
+
+<body>
+
+    <H1>Flat Prices Based on Type in Singapore in 2023</H1>
+    <p>Below is the pricing information for flats based on their types in each planning area in Singapore. This data is retrieved from <a href="https://beta.data.gov.sg/datasets/d_8b84c4ee58e3cfc0ece0d773c8ca6abc/view" target="_blank">data.gov.sg.</a></p>
+
+    <div id="buttons">
+        <center>
+            <button class="Button" onclick="twoRoom()">2 Rooms</button>
+            <button class="Button" onclick="threeRoom()">3 Rooms</button>
+            <button class="Button" onclick="fourRoom()">4 Rooms</button>
+            <button class="Button" onclick="fiveRoom()">5 Rooms</button>
+            <button class="Button" onclick="executive()">Exeutive</button>
+        </center>
+        <br><br>
+    </div>
+    <svg></svg>
+
+
+    <svg id="legend" class="legend"></svg>
+
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <script>
+
+        window.onload = function () {
+            check = 0;
+            RunSvg();
+        };
+
+
+        function twoRoom() {
+            check = 0;
+            RunSvg();
+        }
+
+        function threeRoom() {
+            check = 1;
+            RunSvg();
+        }
+
+        function fourRoom() {
+            check = 2;
+            RunSvg();
+        }
+
+        function fiveRoom() {
+            check = 3;
+            RunSvg();
+        }
+
+        function executive() {
+            check = 4;
+            RunSvg();
+        }
+
+
+        function getValueFromHTML(htmlString, fieldName) {
+            // Create a temporary div element to parse HTML content
+            let tempDiv = document.createElement('div');
+            tempDiv.innerHTML = htmlString;
+
+            // Find the table row containing the fieldName
+            let rows = tempDiv.getElementsByTagName('tr');
+            for (let row of rows) {
+                let cells = row.getElementsByTagName('td');
+                if (cells.length >= 2 && cells[0].textContent.trim() === fieldName) {
+                    // Return the value associated with the fieldName
+                    return cells[1].textContent.trim();
+                }
+            }
+            return null; // Return null if fieldName not found
+        }
+
+        function getColor(value) {
+            // Define color scale domain and range
+            let colorScale = d3.scaleLinear()
+                .domain([0, 200000, 400000, 600000, 800000, 1000000, 1200000, 1400000, 1600000, 1800000]) // Adjust the domain to fit your data range
+                .range(["#00ff00", "#33ff33", "#66ff66", "#99ff99", "#ccffcc", "#ffff00", "#ffcc00", "#ff9900", "#ff6600", "#ff3300"]); // Define a wider range of colors for the gradient
+
+            // Use the color scale to get the color based on the value
+            return colorScale(value);
+        }
+
+        function RunSvg() {
+            let width = 1000, height = 450;
+
+            let svg = d3.select("svg")
+                .attr("viewBox", "0 0 " + width + " " + height);
+
+            // Load external data and boot
+            Promise.all([d3.json("sg_planning_area.json"), d3.csv("newflatprices.csv")]).then(data => {
+                let mapData = data[0].features;
+                let newData = data[1];
+
+                // console.log(newData);
+
+                // Merge provided data with map data
+                mapData.forEach(district => {
+                    let description = district.properties.Description;
+
+                    // Regular expression pattern to match the value inside <td> tags
+                    let pattern = /PLN_AREA_N<\/th>\s*<td>(.*?)<\/td>/;
+
+                    // Match the pattern in the description string
+                    let matches = description.match(pattern);
+
+                    // Extract the value from the second match (index 1)
+                    let areaName = matches[1].replace(/<\/?td>/g, ''); // Remove <td> tags
+                    // console.log(areaName); // Output: BEDOK
+
+                    let found = newData.find(d => d.AREA === areaName);
+                    if (found) {
+                        district.properties.data = found;
+                    }
+                });
+
+                // Map and projection
+                let projection = d3.geoMercator()
+                    .fitSize([width, height], data[0]);
+
+                let geopath = d3.geoPath().projection(projection);
+
+                let tooltip = d3.select("body")
+                    .append("div")
+                    .attr("class", "tooltip")
+                    .style("opacity", 0);
+
+                let popup = d3.select("body")
+                    .append("div")
+                    .attr("class", "popup")
+                    .style("opacity", 0);
+
+                svg.append("g")
+                    .attr("id", "districts")
+                    .selectAll("path")
+                    .data(mapData)
+                    .enter()
+                    .append("path")
+                    .attr("d", geopath)
+                    .classed("leaflet-interactive", true)
+                    .attr("stroke", "white")
+                    .attr("stroke-width", 1)
+                    .attr("fill", d => {
+                        // Adjust coloring based on data
+                        if (d.properties.data) {
+                            // Example: color based on the value of 2 ROOM
+                            let value;
+
+                            if (check == 0) {
+                                value = d.properties.data["2 ROOM"];
+                            }
+                            else if (check == 1) {
+                                value = d.properties.data["3 ROOM"];
+                            }
+                            else if (check == 2) {
+                                value = d.properties.data["4 ROOM"];
+                            }
+                            else if (check == 3) {
+                                value = d.properties.data["5 ROOM"];
+                            }
+                            else if (check == 4) {
+                                value = d.properties.data["EXECUTIVE"];
+                            }
+
+                            if (value < 200000) {
+                                return "#ffffd9"; // light yellow-green
+                            } else if (value < 300000) {
+                                return "#edf8b1"; // medium yellow-green
+                            } else if (value < 400000) {
+                                return "#c7e9b4"; // medium cyan-green
+                            } else if (value < 500000) {
+                                return "#7fcdbb"; // dark cyan-blue
+                            } else if (value < 600000) {
+                                return "#41b6c4"; // medium blue
+                            } else if (value < 700000) {
+                                return "#1d91c0"; // dark blue
+                            } else if (value < 800000) {
+                                return "#225ea8"; // darker blue
+                            } else if (value < 900000) {
+                                return "#253494"; // medium cyan
+                            } else if (value < 1000000) {
+                                return "#081d58"; // dark cyan
+                            } else if (value < 1300000) {
+                                return "#030D24"; // dark cyan
+                            }
+                            else {
+                                return "#D6D6D6"; // default color
+                            }
+
+
+
+                        } else {
+                            return "grey";
+                        }
+                    }).on("mouseover", (event, d) => {
+
+                        let value;
+
+                        if (check == 0) {
+                            value = d.properties.data["2 ROOM"];
+                        }
+                        else if (check == 1) {
+                            value = d.properties.data["3 ROOM"];
+                        }
+                        else if (check == 2) {
+                            value = d.properties.data["4 ROOM"];
+                        }
+                        else if (check == 3) {
+                            value = d.properties.data["5 ROOM"];
+                        }
+                        else if (check == 4) {
+                            value = d.properties.data["EXECUTIVE"];
+                        }
+
+                        // Show tooltip on mouseover
+                        d3.select(".tooltip")
+                            .text(d.properties.data.AREA + " : " + value)
+                            .style("position", "absolute")
+                            .style("background", "#FFFFFF")
+                            .style("left", (event.pageX + 15) + "px")
+                            .style("top", (event.pageY + 15) + "px")
+                            .style("z-index", "1000")
+                            .style("opacity", 1)
+                            .style("font-family", "Montserrat")
+                            .style("font-size", "12px"); // Ensure tooltip is visible
+
+                        // Reduce opacity of the hovered area
+                        d3.select(event.target)
+                            .attr("opacity", 0.5);
+                    })
+                    .on("mouseout", function (event, d) {
+                        // Hide tooltip on mouseout
+                        d3.select(".tooltip")
+                            .style("opacity", 0); // Hide tooltip
+                        // Restore opacity of the area
+                        d3.select(event.target)
+                            .attr("opacity", 1);
+                    });
+
+
+                    // Data untuk legenda
+                    let legendData = [
+                        
+                        { color: "#edf8b1", label: "200000 - 300000" },
+                        { color: "#c7e9b4", label: "300000 - 400000" },
+                        { color: "#7fcdbb", label: "400000 - 500000" },
+                        { color: "#41b6c4", label: "500000 - 600000" },
+                        { color: "#1d91c0", label: "600000 - 700000" },
+                        { color: "#225ea8", label: "700000 - 800000" },
+                        { color: "#253494", label: "800000 - 900000" },
+                        { color: "#081d58", label: "900000 - 1000000" },
+                        { color: "#030D24", label: "> 1000000" }
+                    ];
+
+                    //
+                    let legend = svg.append("g")
+                        .attr("class", "legend")
+                        .attr("transform", "translate(20, 20)");
+
+                    //
+                    let legendItems = legend.selectAll("g")
+                        .data(legendData)
+                        .enter()
+                        .append("g")
+                        .attr("transform", (d, i) => "translate(0," + i * 20 + ")");
+
+                    legendItems.append("rect")
+                        .attr("width", 15)
+                        .attr("height", 15)
+                        .attr("fill", d => d.color);
+
+                    legendItems.append("text")
+                        .attr("x", 30)
+                        .attr("y", 10)
+                        .text(d => d.label);
+
+
+            });
+
+
+        }
+
+    </script>
+
+<h3>Example Questions</h3>
+<p>Q: Where are the most affordable 2-room flats for young families with one child who want to live near the city center?</p>
+<p>A: Marine Parade, Toa Payoh, and Geylang offer suitable options with prices ranging from $260,000 to $280,000.</p>
+<br>
+<p>Q: Where are the most affordable flats for 3-generation families in Singapore? </p>
+<p>A: Typically 4-5 room flats, Jurong West is considered the most affordable for flat types 2-4 rooms, followed by Choa Chu Kang and Woodlands.</p>
+<br>
+<p>Q: How does the spatial pattern of flat prices in Singapore in 2023 look like?</p>
+<p>A: Other than being influenced by flat types, prices tend to follow a spatial pattern where they become more expensive as you approach the city center.</p>
+
+<br><br>
+<h3>Assignment 3 (Interactive Data Vizualitation)</h5>
+<p>Created by Judah Yosia Wanjoyo</p>
+
+</body>
+
+</html>
